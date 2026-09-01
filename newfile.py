@@ -1,198 +1,178 @@
-import sqlite3
 import telebot
 import os
 from telebot import types
+import sqlite3
 
+# ВАЖНО: ВСТАВЬ СВОЙ ТОКЕН, но лучше создай нового бота для портфолио!
 TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_ID = 8792648631
+# Твой Telegram ID (узнать можно у бота @userinfobot). Сюда будут приходить заявки!
+ADMIN_ID = 8287534964
+
 bot = telebot.TeleBot(TOKEN)
 
+# --- База данных ---
 def init_db():
-    conn = sqlite3.connect("MemoryBase.db")
-    cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER UNIQUE,
-            name TEXT,
-            balance INTEGER DEFAULT 0
-        )
-    """)
+    conn = sqlite3.connect('bot_database.db', check_same_thread=False)
+    cur = conn.cursor()
+    cur.execute('''CREATE TABLE IF NOT EXISTS users
+                   (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER,
+                    username TEXT,
+                    name TEXT,
+                    phone TEXT)''')
     conn.commit()
     conn.close()
 
 init_db()
 
+# --- Машина состояний (простая, без библиотеки) ---
+user_state = {} # Храним состояние пользователя: {'user_id': 'waiting_name', ...}
+
+# --- Меню ---
+def main_menu():
+    markup = types.InlineKeyboardMarkup()
+    btn1 = types.InlineKeyboardButton("Мои навыки", callback_data="naviki")
+    btn2 = types.InlineKeyboardButton("Мои услуги", callback_data="uslugi")
+    btn3 = types.InlineKeyboardButton("Мой прайс", callback_data="price")
+    btn4 = types.InlineKeyboardButton("Время работ", callback_data="rabot")
+    btn5 = types.InlineKeyboardButton("Гарантия", callback_data="garant")
+    btn6 = types.InlineKeyboardButton("График", callback_data="grafik")
+    btn7 = types.InlineKeyboardButton("📝 Оставить заявку", callback_data="zayavka")
+    btn8 = types.InlineKeyboardButton("Связь", url="https://t.me/imkol_official_channel")
+
+    markup.add(btn1, btn2, btn3, btn4, btn5, btn6, btn7, btn8)
+    return markup
+
+# --- Обработчики команд и текста ---
 @bot.message_handler(commands=["start"])
 def welcome(message):
-    u_id = message.from_user.id
-    u_name = message.from_user.first_name
-
-    conn = sqlite3.connect("MemoryBase.db")
-    cursor = conn.cursor()
-    cursor.execute(
-        "INSERT OR IGNORE INTO users (user_id, name, balance) VALUES (?, ?, 0)",
-        (u_id, u_name),
-    )
-    conn.commit()
-
-    cursor.execute("SELECT balance FROM users WHERE user_id = ?", (u_id,))
-    balance = cursor.fetchone()[0]
-    conn.close()
-
-    markup = types.InlineKeyboardMarkup()
-    btn1 = types.InlineKeyboardButton("О нас", callback_data="o_nas")
-    btn2 = types.InlineKeyboardButton("Прайс", callback_data="price")
-    btn3 = types.InlineKeyboardButton("Купить 50 монет за 1 stars", callback_data="buy_stars")
-    markup.add(btn1, btn2)
-    markup.add(btn3)
-
-    if u_id == ADMIN_ID:
-        btn_admin = types.InlineKeyboardButton("Рассылка", callback_data="admin_broadcast")
-        markup.add(btn_admin)
-
     bot.send_message(
         message.chat.id,
-        f"Привет, **{u_name}**!\n"
-        f"Баланс: **{balance}** coins\n"
-        f"Выбор раздела: ",
-        reply_markup=markup,
+        "**Добро пожаловать в моё портфолио!**\n\n"
+        "Я — Middle разработчик Telegram-ботов на Python.\n"
+        "⬇️ **Выберите раздел:**",
+        reply_markup=main_menu(),
         parse_mode="Markdown"
     )
 
+# Обработка текста (для регистрации)
+@bot.message_handler(content_types=['text', 'contact'])
+def handle_text(message):
+    user_id = message.chat.id
+    
+    if user_state.get(user_id) == 'waiting_name':
+        user_state[user_id] = 'waiting_phone'
+        user_state['name'] = message.text
+        bot.send_message(user_id, "Отлично! Теперь отправьте ваш номер телефона (нажмите кнопку ниже).", 
+                         reply_markup=phone_keyboard())
+    
+    elif user_state.get(user_id) == 'waiting_phone':
+        if message.contact:
+            phone = message.contact.phone_number
+        else:
+            phone = message.text
+        
+        name = user_state.get('name')
+        username = message.from_user.username
+        
+        # Сохраняем в БД
+        conn = sqlite3.connect('bot_database.db', check_same_thread=False)
+        cur = conn.cursor()
+        cur.execute("INSERT INTO users (user_id, username, name, phone) VALUES (?, ?, ?, ?)",
+                    (user_id, username, name, phone))
+        conn.commit()
+        conn.close()
+        
+        # Уведомляем админа
+        try:
+            bot.send_message(ADMIN_ID, f"🔥 Новая заявка!\n\n👤 Имя: {name}\n📱 Телефон: {phone}\n🆔 @{username}")
+        except:
+            pass # Если админ не указан, просто пропускаем
+        
+        bot.send_message(user_id, "✅ Заявка принята! Мы свяжемся с вами в ближайшее время.", reply_markup=types.ReplyKeyboardRemove())
+        user_state[user_id] = None
+
+# --- Callback кнопки ---
 @bot.callback_query_handler(func=lambda call: True)
-def callback_inline(call):
+def handle_inline(call):
     bot.answer_callback_query(call.id)
-    u_id = call.from_user.id
 
-    if call.data == "o_nas":
+    if call.data == "naviki":
+        text = "**Наши навыки:**\n\n" \
+               "• Python\n" \
+               "• Telebot\n" \
+               "• SQLite (базы данных)\n" \
+               "• Inline-кнопки\n" \
+               "• Регистрация и анкеты\n" \
+               "• Админ-панели и рассылки"
         markup = types.InlineKeyboardMarkup()
-        btn_back = types.InlineKeyboardButton("Назад", callback_data="main_menu")
-        markup.add(btn_back)
+        markup.add(types.InlineKeyboardButton("🔙 Назад", callback_data="main_menu"))
+        bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=text, reply_markup=markup, parse_mode="Markdown")
 
-        bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text="Мы команда разработчиков на python\n\nГлавный разработчик — #imkol",
-            reply_markup=markup
-        )
+    elif call.data == "uslugi":
+        text = "**Наши услуги:**\n\n" \
+               "• Бот-визитка с кнопками и меню\n" \
+               "• Бот с регистрацией и базой данных\n" \
+               "• Бот с админ-панелью и рассылками\n" \
+               "• Бот с инлайн-меню и разделами"
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("🔙 Назад", callback_data="main_menu"))
+        bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=text, reply_markup=markup, parse_mode="Markdown")
 
     elif call.data == "price":
+        text = "**Мой прайс:**\n\n" \
+               "• Бот-визитка — от 700 ₽\n" \
+               "• Бот с БД и регистрацией — от 2500 ₽\n" \
+               "• Бот с админ-панелью — от 4000 ₽"
         markup = types.InlineKeyboardMarkup()
-        btn_back = types.InlineKeyboardButton("Назад", callback_data="main_menu")
-        markup.add(btn_back)
+        markup.add(types.InlineKeyboardButton("🔙 Назад", callback_data="main_menu"))
+        bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=text, reply_markup=markup, parse_mode="Markdown")
 
-        bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text="**Прайс-лист:**\n• 1 бот — от 1000₽\n• Бот с базой данных — от 2500₽",
-            reply_markup=markup,
-            parse_mode="Markdown",
-        )
+    elif call.data == "rabot":
+        text = "**Время работ:**\n\n" \
+               "• Бот-визитка — 1–2 дня\n" \
+               "• Бот с БД — 2–4 дня\n" \
+               "• Бот с админкой — 3–5 дней"
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("🔙 Назад", callback_data="main_menu"))
+        bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=text, reply_markup=markup, parse_mode="Markdown")
 
-    elif call.data == "buy_stars":
-        prices = [types.LabeledPrice(label="50 игровых монет", amount=1)]
-        bot.send_invoice(
-            chat_id=call.message.chat.id,
-            title="Покупка 50 монет",
-            description="Мгновенное пополнение игрового баланса из Telegram stars",
-            invoice_payload="buy_50_coins_payload",
-            provider_token="",
-            currency="XTR",
-            prices=prices,
-            start_parameter="buy-stars-shop",
-        )
+    elif call.data == "garant":
+        text = "**Гарантия:**\n\n1 месяц бесплатной поддержки и исправления багов."
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("🔙 Назад", callback_data="main_menu"))
+        bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=text, reply_markup=markup, parse_mode="Markdown")
 
-    elif call.data == "admin_broadcast" and u_id == ADMIN_ID:
-        msg = bot.send_message(
-            call.message.chat.id,
-            "Введите текст объявления для рассылки по всей базе данных:",
-        )
-        bot.register_next_step_handler(msg, step_broadcast)
+    elif call.data == "grafik":
+        text = "**График работы:**\n\n" \
+               "Пн–Пт: 17:00–22:00\n" \
+               "Сб: 17:00–02:00\n" \
+               "Вс: выходной\n\n" \
+               "Часовой пояс: МСК"
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("🔙 Назад", callback_data="main_menu"))
+        bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=text, reply_markup=markup, parse_mode="Markdown")
 
+    elif call.data == "zayavka":
+        user_state[call.message.chat.id] = 'waiting_name'
+        bot.send_message(call.message.chat.id, "Введите ваше имя:", reply_markup=types.ReplyKeyboardRemove())
+    
     elif call.data == "main_menu":
-        conn = sqlite3.connect("MemoryBase.db")
-        cursor = conn.cursor()
-        cursor.execute("SELECT balance FROM users WHERE user_id = ?", (u_id,))
-        balance = cursor.fetchone()[0]
-        conn.close()
-
-        markup = types.InlineKeyboardMarkup()
-        btn1 = types.InlineKeyboardButton("О нас", callback_data="o_nas")
-        btn2 = types.InlineKeyboardButton("Прайс", callback_data="price")
-        btn3 = types.InlineKeyboardButton("Купить 50 монет за 1 Stars", callback_data="buy_stars")
-        markup.add(btn1, btn2)
-        markup.add(btn3)
-
-        if u_id == ADMIN_ID:
-            btn_admin = types.InlineKeyboardButton("Рассылка", callback_data="admin_broadcast")
-            markup.add(btn_admin)
-
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            text=f"Главное меню:\n\nТвой баланс: **{balance} монет** ",
-            reply_markup=markup,
-            parse_mode="Markdown",
+            text="**Добро пожаловать в моё портфолио!**\n\n"
+                 "Я — Middle разработчик Telegram-ботов на Python.\n"
+                 "⬇️ **Выберите раздел:**",
+            reply_markup=main_menu(),
+            parse_mode="Markdown"
         )
 
-def step_broadcast(message):
-    bc_text = message.text
+def phone_keyboard():
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+    btn = types.KeyboardButton("📱 Отправить мой номер", request_contact=True)
+    markup.add(btn)
+    return markup
 
-    conn = sqlite3.connect("MemoryBase.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT user_id FROM users")
-    all_users = cursor.fetchall()
-    conn.close()
-
-    success = 0
-    for user in all_users:
-        user_id = user[0]
-        try:
-            bot.send_message(
-                user_id,
-                f"**ОФИЦИАЛЬНОЕ ОБЪЯВЛЕНИЕ:**\n\n{bc_text}",
-                parse_mode="Markdown",
-            )
-            success += 1
-        except Exception:
-            pass
-
-    bot.send_message(
-        message.chat.id,
-        f"**Рассылка завершена!** Успешно доставлено: **{success}** пользователям из базы.",
-        parse_mode="Markdown",
-    )
-
-@bot.pre_checkout_query_handler(func=lambda query: True)
-def process_pre_checkout(pre_checkout_query):
-    bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
-
-@bot.message_handler(content_types=["successful_payment"])
-def process_successful_payment(message):
-    u_id = message.from_user.id
-    stars_paid = message.successful_payment.total_amount
-    coins_to_add = stars_paid * 50
-
-    conn = sqlite3.connect("MemoryBase.db")
-    cursor = conn.cursor()
-    cursor.execute(
-        "UPDATE users SET balance = balance + ? WHERE user_id = ?",
-        (coins_to_add, u_id),
-    )
-    conn.commit()
-
-    cursor.execute("SELECT balance FROM users WHERE user_id = ?", (u_id,))
-    new_balance = cursor.fetchone()[0]
-    conn.close()
-
-    bot.send_message(
-        message.chat.id,
-        f"**ОПЛАТА ЗВЁЗДАМИ УСПЕШНА!**\n\n"
-        f"• Списано: **{stars_paid} **\n"
-        f"• Зачислено: **+{coins_to_add} монет** \n"
-        f"Новый баланс в SQLite: **{new_balance} монет**",
-        parse_mode="Markdown",
-    )
-
-print("imkol_dev")
+print("Бот запущен!")
 bot.infinity_polling()
