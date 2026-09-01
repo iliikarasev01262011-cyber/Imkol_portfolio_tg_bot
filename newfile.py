@@ -1,8 +1,9 @@
 import os
 import telebot
 from telebot import types
-import sqlite3
 from flask import Flask
+import sqlite3
+
 
 # Токен из настроек Render
 TOKEN = os.getenv("BOT_TOKEN")
