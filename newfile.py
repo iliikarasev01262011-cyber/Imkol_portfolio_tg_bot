@@ -46,7 +46,7 @@ def main_menu():
     btn6 = types.InlineKeyboardButton("График", callback_data="grafik")
     btn7 = types.InlineKeyboardButton("📝 Оставить заявку", callback_data="zayavka")
     btn8 = types.InlineKeyboardButton("Связь", url="https://t.me/imkol_official_channel")
-    btn9 = types.InlineKeyboardButton("Новостной канал", url = "https://t.me/imkol_dev")
+    btn9 = types.InlineKeyboardButton("Kанал", url = "https://t.me/imkol_dev")
     markup.add(btn1, btn2, btn3, btn4, btn5, btn6, btn7, btn8, btn9)
     return markup
 
